@@ -42,13 +42,39 @@ export class Store {
     return d
   }
   list(): SavedDevice[] { return Object.values(this.state.devices).filter(d => !d.revoked) }
-  register(descriptor: AccountDeviceDescriptor): ReturnType<Store['issue']> {
+  /**
+   * Registers a device.
+   *
+   * `authorizedBy` is the descriptor of the device whose access token authorized the
+   * call, or `undefined` when the caller presented an account session instead.
+   *
+   * A caller holding a *device* token may only enroll a brand new device of the
+   * opposite role (the §8.1.2 "register-owned-role" flow). It must never be able to
+   * replace another device's record: an identity key is public, so key equality is
+   * not proof of ownership, and overwriting a record both evicts the real device and
+   * hands the caller that device's role.
+   */
+  register(descriptor: AccountDeviceDescriptor, authorizedBy?: AccountDeviceDescriptor): ReturnType<Store['issue']> {
     const old = this.state.devices[descriptor.deviceId]
     if (old?.revoked) throw new ApiError('DEVICE_REVOKED', 403)
-    if (old && (old.descriptor.identityKey !== descriptor.identityKey || old.descriptor.role !== descriptor.role)) throw new ApiError('PEER_IDENTITY_MISMATCH', 409)
+    // A device identity key is immutable once registered. Presenting a different key
+    // for an existing deviceId is never a legitimate update: it is either key
+    // substitution by whoever holds an account session, or an attempt to adopt
+    // another device's identity. Re-registering the *same* device with the *same*
+    // key and role stays allowed, because that is the token-refresh path.
+    if (old && (old.descriptor.identityKey !== descriptor.identityKey || old.descriptor.role !== descriptor.role)) {
+      throw new ApiError('PEER_IDENTITY_MISMATCH', 409)
+    }
+    if (authorizedBy !== undefined) {
+      // A device credential may not re-register itself, re-register its own role, or
+      // take over any device that already exists.
+      if (authorizedBy.deviceId === descriptor.deviceId) throw new ApiError('INVALID_MESSAGE', 409)
+      if (authorizedBy.role === descriptor.role) throw new ApiError('INVALID_MESSAGE', 409)
+      if (old) throw new ApiError('DEVICE_ALREADY_REGISTERED', 409)
+    }
     if (!old && Object.keys(this.state.devices).length >= 256) throw new ApiError('RATE_LIMITED', 429)
     this.state.devices[descriptor.deviceId] = { descriptor, revoked: false, lastSeenAt: old?.lastSeenAt ?? 0 }
-    this.invalidate(descriptor.deviceId)
+    if (old) this.invalidate(descriptor.deviceId)
     return this.issue(descriptor.deviceId)
   }
   private issue(deviceId: string, refreshTokenExpiresAt = Date.now() + 30 * 86400_000) {

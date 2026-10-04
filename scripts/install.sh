@@ -4,16 +4,24 @@ set -euo pipefail
 # Usage: install.sh
 
 NODE_VERSION="${NODE_VERSION:-22.14.0}"
-DSH_VERSION="${DSH_VERSION:-latest}"
-REMOTE_VERSION="${REMOTE_VERSION:-latest}"
+# Pin exact versions. `latest` is refused unless DSH_ALLOW_LATEST=1 is set, because
+# it silently upgrades a boot-persistent, remote-reachable service to whatever was
+# published most recently.
+DSH_VERSION="${DSH_VERSION:-0.2.0-rc.2}"
+REMOTE_VERSION="${REMOTE_VERSION:-0.4.27}"
 DSH_PROFILE="${DSH_PROFILE:-web}"
 NODE_HOME="${DSH_NODE_HOME:-${HOME}/.local/share/dsh-node/node-v${NODE_VERSION}}"
-NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+# Official registry by default; a mirror may still be chosen explicitly.
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org}"
+NODE_MIRROR="${NODE_MIRROR:-https://nodejs.org/dist}"
 SERVICE_NAME="${DSH_SERVICE_NAME:-dsh-remote}"
 SERVICE_COMMAND="${DSH_SERVICE_COMMAND:-}"
-# Remote control is enabled by the bundled Host profile. Keep the terminal
-# opt-out available, but enable it for automated installations by default.
-DSH_REMOTE_TERMINAL_ENABLED="${DSH_REMOTE_TERMINAL_ENABLED:-true}"
+# Installing a boot-persistent service is a deliberate opt-in. It runs the Host
+# unattended from boot, so it must not happen as a side effect of installing a CLI.
+DSH_INSTALL_SERVICE="${DSH_INSTALL_SERVICE:-false}"
+# Remote terminal access is off unless the operator asks for it. It is equivalent to
+# handing an interactive shell on this machine to any authorized remote device.
+DSH_REMOTE_TERMINAL_ENABLED="${DSH_REMOTE_TERMINAL_ENABLED:-false}"
 export DSH_REMOTE_TERMINAL_ENABLED
 INITIAL_PATH="$PATH"
 PATH_BLOCK_BEGIN='# >>> dsh-remote installer >>>'
@@ -21,6 +29,40 @@ PATH_BLOCK_END='# <<< dsh-remote installer <<<'
 
 say() { printf '[dsh-install] %s\n' "$*"; }
 die() { printf '[dsh-install] error: %s\n' "$*" >&2; exit 1; }
+
+# Refuses mutable version selectors for anything that ends up in a persistent
+# service, unless the operator explicitly opts in.
+require_pinned_version() {
+  local name="$1" value="$2"
+  case "$value" in
+    latest|next|canary|'') 
+      if [[ "${DSH_ALLOW_LATEST:-0}" == "1" ]]; then
+        say "warning: ${name}=${value} installs a mutable version (DSH_ALLOW_LATEST=1)"
+        return 0
+      fi
+      die "${name} must be an exact version (got '${value}'). Set DSH_ALLOW_LATEST=1 to accept a moving tag."
+      ;;
+  esac
+}
+
+# Verifies a downloaded archive against a published SHA-256 before it is extracted
+# and executed. The checksum file itself is fetched next to the artifact.
+verify_sha256() {
+  local file="$1" url="$2" name="$3" sums sums_url expected actual
+  sums_url="${url%/*}/SHASUMS256.txt"
+  sums="$(mktemp)"
+  if ! curl --fail --silent --show-error --location --retry 3 --output "$sums" "$sums_url"; then
+    rm -f "$sums"
+    die "Cannot fetch ${sums_url} to verify ${name}. Refusing to run an unverified download."
+  fi
+  expected="$(awk -v n="$name" '$2 == n || $2 == "*"n { print $1; exit }' "$sums")"
+  rm -f "$sums"
+  [[ -n "$expected" ]] || die "No SHA-256 for ${name} in the published checksum list. Refusing to continue."
+  actual="$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')"
+  [[ -n "$actual" ]] || actual="$(sha256sum "$file" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || die "SHA-256 mismatch for ${name}: expected ${expected}, got ${actual}."
+  say "Verified ${name} (sha256 ${expected:0:16}…)"
+}
 
 install_node() {
   command -v curl >/dev/null 2>&1 || die 'curl is required to install Node.js automatically.'
@@ -36,10 +78,11 @@ install_node() {
     *) die "Unsupported CPU architecture: $(uname -m)" ;;
   esac
   archive="node-v${NODE_VERSION}-${os}-${arch}.tar.gz"
-  url="https://npmmirror.com/mirrors/node/v${NODE_VERSION}/${archive}"
+  url="${NODE_MIRROR}/v${NODE_VERSION}/${archive}"
   tmp="$(mktemp -d)"
-  say "Node.js not found; downloading ${NODE_VERSION} from npmmirror.com"
+  say "Node.js not found; downloading ${NODE_VERSION} from ${NODE_MIRROR}"
   curl --fail --location --retry 3 --output "$tmp/$archive" "$url"
+  verify_sha256 "$tmp/$archive" "$url" "$archive"
   mkdir -p "$(dirname "$NODE_HOME")"
   tar -xzf "$tmp/$archive" -C "$(dirname "$NODE_HOME")"
   extract_dir="$(dirname "$NODE_HOME")/node-v${NODE_VERSION}-${os}-${arch}"
@@ -93,8 +136,10 @@ pnpm --version
 export npm_config_registry="$NPM_REGISTRY"
 
 say "Installing @deepseek-ai/dsh (${DSH_VERSION})"
+require_pinned_version DSH_VERSION "$DSH_VERSION"
 npm --registry "$NPM_REGISTRY" install --global "@deepseek-ai/dsh@${DSH_VERSION}"
 say "Installing ds-harness-remote CLI (${REMOTE_VERSION})"
+require_pinned_version REMOTE_VERSION "$REMOTE_VERSION"
 npm --registry "$NPM_REGISTRY" install --global "ds-harness-remote@${REMOTE_VERSION}"
 REMOTE_PACKAGE_DIR="$(npm root --global)/ds-harness-remote"
 [[ -f "$REMOTE_PACKAGE_DIR/package.json" ]] || die "Global ds-harness-remote package was not found at $REMOTE_PACKAGE_DIR"
@@ -110,7 +155,16 @@ fi
 say "Adding ds-harness-remote@${REMOTE_VERSION} to the ${DSH_PROFILE} profile"
 dsh plugin --profile "$DSH_PROFILE" add -w "$REMOTE_PACKAGE_DIR"
 
-say 'Plugins installed. Configuring the Host service.'
+say 'Plugins installed.'
+
+if [[ "${DSH_INSTALL_SERVICE}" != "1" && "${DSH_INSTALL_SERVICE}" != "true" ]]; then
+  say 'Skipping service installation (default).'
+  say "The CLI and profile are ready; start the Host with 'dsh --profile ${DSH_PROFILE}' when you want it."
+  say 'To install a boot-persistent service, re-run with DSH_INSTALL_SERVICE=1.'
+  exit 0
+fi
+
+say 'Configuring the Host service.'
 
 executable="${SERVICE_COMMAND:-}"
   if [[ -z "$executable" ]]; then

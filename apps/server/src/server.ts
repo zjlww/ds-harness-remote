@@ -116,8 +116,7 @@ export function createRemoteServer(config: Config) {
       const source = path.endsWith('register-owned-role') ? deviceAuth(req) : undefined
       if (!source) accountAuth(req)
       const { device } = deviceRegistrationRequestSchema.parse(await body(req))
-      if (source && (source.descriptor.deviceId === device.deviceId || source.descriptor.role === device.role)) throw new ApiError('INVALID_MESSAGE', 409)
-      json(res, 200, store.register(device)); return
+      json(res, 200, store.register(device, source?.descriptor)); return
     }
     if (method === 'POST' && path === '/api/v1/auth/refresh') {
       const data = deviceRefreshRequestSchema.parse(await body(req))

@@ -311,6 +311,24 @@ export class HostServerConnection {
   }
 
   private async handleFrame(frame: ReturnType<typeof decodeControlFrame>): Promise<void> {
+    // One WebSocket carries every tunnel, so a fault raised while handling a frame
+    // that belongs to a single connection must drop only that connection. Rethrowing
+    // it closes the shared control channel and disconnects every peer.
+    try {
+      await this.dispatchFrame(frame)
+    } catch (error) {
+      const connectionId = frameConnectionId(frame)
+      if (connectionId === undefined || error instanceof ControlConnectionError) throw error
+      this.logger.warn('dropping tunnel after a control frame failed', {
+        connectionId: shortId(connectionId),
+        code: errorCode(error),
+        reason: diagnosticReason(error),
+      })
+      await this.dropTunnel(connectionId, errorCode(error))
+    }
+  }
+
+  private async dispatchFrame(frame: ReturnType<typeof decodeControlFrame>): Promise<void> {
     if (frame.type === 'ping') {
       const nonce = objectValue(frame.payload, 'nonce')
       if (typeof nonce !== 'string') throw new ControlConnectionError('INVALID_MESSAGE', 'Control ping has no nonce.')
@@ -916,6 +934,17 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
 
 class ControlConnectionError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
+}
+
+/**
+ * The tunnel a control frame belongs to, when it names one. Frames without a
+ * connection id are connection-scoped (hello/auth/negotiation) and stay fatal.
+ */
+function frameConnectionId(frame: ReturnType<typeof decodeControlFrame>): string | undefined {
+  const payload = frame.payload
+  if (payload === null || typeof payload !== 'object') return undefined
+  const value = (payload as { connectionId?: unknown }).connectionId
+  return typeof value === 'string' && value !== '' ? value : undefined
 }
 
 function websocketUrl(baseUrl: string): string {

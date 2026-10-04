@@ -100,7 +100,59 @@ describe('account and device authorization', () => {
     expect((await request(`/devices/${c.deviceId}`, 'GET', undefined, c.accessToken)).status).toBe(403)
     const descriptor = { ...changed, deviceId: randomUUID() }
     expect((await request('/devices/register-owned-role', 'POST', { v: 1, device: descriptor }, h.accessToken)).status).toBe(409)
+    // A device credential may enroll a brand new opposite-role device...
     expect((await request('/devices/register-owned-role', 'POST', { v: 1, device: descriptor }, c.accessToken)).status).toBe(200)
+    // ...but never one of its own role, and never an existing device.
+    expect((await request('/devices/register-owned-role', 'POST', {
+      v: 1,
+      device: { ...descriptor, deviceId: randomUUID(), role: 'client' },
+    }, c.accessToken)).status).toBe(409)
+  })
+  it('refuses a client credential that tries to take over an existing host device', async () => {
+    // Reproduces the pre-fix takeover: read the host's public key from the device
+    // directory, then re-register the host's deviceId with a client token. Before the
+    // fix this returned 200, invalidated the real host's tokens and issued host-role
+    // tokens to the caller.
+    const host = await device('host'), client = await device('client')
+    const leaked = await request(`/devices/${host.deviceId}`, 'GET', undefined, client.accessToken)
+    expect(leaked.status).toBe(200)
+    expect(leaked.data.identityKey).toBe(host.identityKey)
+
+    const takeover = await request('/devices/register-owned-role', 'POST', {
+      v: 1,
+      device: {
+        deviceId: host.deviceId,
+        name: host.name,
+        role: 'host',
+        platform: host.platform,
+        clientVersion: host.clientVersion,
+        identityKey: host.identityKey,
+      },
+    }, client.accessToken)
+    expect(takeover.status).toBe(409)
+    expect(takeover.data.error.code).toBe('DEVICE_ALREADY_REGISTERED')
+
+    // The real host keeps its identity and its credential.
+    const hostSelf = await request('/me', 'GET', undefined, host.accessToken)
+    expect(hostSelf.status).toBe(200)
+    expect(hostSelf.data.deviceId).toBe(host.deviceId)
+    expect(hostSelf.data.identityKey).toBe(host.identityKey)
+
+    // A client also cannot mint a host under a fresh deviceId while claiming the
+    // client role, and the account session can no longer swap a device's key either.
+    const swapped = await request('/devices/register', 'POST', {
+      v: 1,
+      device: {
+        deviceId: host.deviceId,
+        name: host.name,
+        role: 'host',
+        platform: host.platform,
+        clientVersion: host.clientVersion,
+        identityKey: client.identityKey,
+      },
+    }, accountToken)
+    expect(swapped.status).toBe(409)
+    expect(swapped.data.error.code).toBe('PEER_IDENTITY_MISMATCH')
   })
   it('persists credentials as digests, rotates refresh tokens and revokes a reused family', async () => {
     const d = await device()
