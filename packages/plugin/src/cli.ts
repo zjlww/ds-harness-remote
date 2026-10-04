@@ -37,6 +37,7 @@ interface CliHostApi {
   authenticate(identity?: HostIdentity): Promise<ServerCredentials>
   revokeCurrentDevice(): Promise<void>
   authorizeHostWithCode(identity: HostIdentity, code: string): Promise<DeviceAuthorization>
+  authorizeWithAccount(identity: HostIdentity, email: string, password: string): Promise<DeviceAuthorization>
 }
 
 export interface RemoteCliDependencies {
@@ -70,6 +71,7 @@ export async function runCli(
   const [command, ...rest] = args
   try {
     if (command === 'login') return await login(rest, runtime)
+    if (command === 'login-account') return await loginAccount(rest, runtime)
     if (command === 'register') return await register(rest, runtime)
     if (command === 'status') return await status(rest, runtime)
     if (command === 'logout') return await logout(rest, runtime)
@@ -94,6 +96,38 @@ async function register(args: readonly string[], runtime: CliRuntime): Promise<n
   const context = await hostContext(runtime)
   await context.api.authorizeHostWithCode(context.identity, args[0])
   write(runtime.stdout, 'Remote Host registration complete. Restart dsh-tui to bring the Remote Host online.\n')
+  return 0
+}
+
+/**
+ * Authorizes this device with an account email and password.
+ *
+ * Self-hosted relays implement `/api/v1/auth/login` plus `/api/v1/devices/register`
+ * but not the hosted operator's QR/OAuth endpoints, so this is the only sign-in path
+ * available to them. The password is read from DSH_REMOTE_PASSWORD rather than an
+ * argument, so it never appears in the process list or the shell history.
+ */
+async function loginAccount(args: readonly string[], runtime: CliRuntime): Promise<number> {
+  const { positional, flags } = parseFlags(args)
+  const account = positional[0] ?? flags.get('account')
+  if (positional.length > 1 || account === undefined || account.trim() === '') {
+    throw new CliUsageError('Usage: ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)')
+  }
+  const password = process.env.DSH_REMOTE_PASSWORD ?? ''
+  if (password === '') {
+    throw new CliUsageError('Set DSH_REMOTE_PASSWORD to the account password (it is not accepted as an argument).')
+  }
+  const serverUrl = normalizeServerUrl(flags.get('server') ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+  const root = new IdentityStore({ env: runtime.env }).directory
+  const directory = serverStorageDirectory(root, serverUrl, 'host')
+  const identities = runtime.createIdentityStore({ directory, env: runtime.env })
+  const identity = await identities.loadOrCreate(hostname())
+  const api = runtime.createHostApi(serverUrl, new ServerCredentialStore(directory))
+  const authorization = await api.authorizeWithAccount(identity, account.trim(), password)
+  write(runtime.stdout, `Authorized as ${authorization.account ?? account.trim()} against ${serverUrl}\n`)
+  write(runtime.stdout, `  deviceId    ${identity.deviceId}\n`)
+  write(runtime.stdout, `  publicKey   ${identity.publicKey}\n`)
+  write(runtime.stdout, `  fingerprint ${identity.fingerprint}\n`)
   return 0
 }
 
@@ -406,6 +440,7 @@ function helpText(): string {
   return [
     'Usage:',
     '  ds-harness-remote login [github|zhihu]',
+    '  ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)',
     '  ds-harness-remote register <server-token>',
     '  ds-harness-remote status',
     '  ds-harness-remote logout',

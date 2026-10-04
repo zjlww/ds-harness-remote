@@ -27484,6 +27484,7 @@ async function runCli(args = process.argv.slice(2), dependencies = {}) {
   const [command, ...rest] = args;
   try {
     if (command === "login") return await login(rest, runtime);
+    if (command === "login-account") return await loginAccount(rest, runtime);
     if (command === "register") return await register(rest, runtime);
     if (command === "status") return await status(rest, runtime);
     if (command === "logout") return await logout(rest, runtime);
@@ -27509,6 +27510,33 @@ async function register(args, runtime) {
   const context = await hostContext(runtime);
   await context.api.authorizeHostWithCode(context.identity, args[0]);
   write(runtime.stdout, "Remote Host registration complete. Restart dsh-tui to bring the Remote Host online.\n");
+  return 0;
+}
+async function loginAccount(args, runtime) {
+  const { positional, flags } = parseFlags(args);
+  const account = positional[0] ?? flags.get("account");
+  if (positional.length > 1 || account === void 0 || account.trim() === "") {
+    throw new CliUsageError("Usage: ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)");
+  }
+  const password = process.env.DSH_REMOTE_PASSWORD ?? "";
+  if (password === "") {
+    throw new CliUsageError("Set DSH_REMOTE_PASSWORD to the account password (it is not accepted as an argument).");
+  }
+  const serverUrl = normalizeServerUrl(flags.get("server") ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+  const root = new IdentityStore({ env: runtime.env }).directory;
+  const directory = serverStorageDirectory(root, serverUrl, "host");
+  const identities = runtime.createIdentityStore({ directory, env: runtime.env });
+  const identity = await identities.loadOrCreate(hostname3());
+  const api = runtime.createHostApi(serverUrl, new ServerCredentialStore(directory));
+  const authorization = await api.authorizeWithAccount(identity, account.trim(), password);
+  write(runtime.stdout, `Authorized as ${authorization.account ?? account.trim()} against ${serverUrl}
+`);
+  write(runtime.stdout, `  deviceId    ${identity.deviceId}
+`);
+  write(runtime.stdout, `  publicKey   ${identity.publicKey}
+`);
+  write(runtime.stdout, `  fingerprint ${identity.fingerprint}
+`);
   return 0;
 }
 async function login(args, runtime) {
@@ -27783,6 +27811,7 @@ function helpText() {
   return [
     "Usage:",
     "  ds-harness-remote login [github|zhihu]",
+    "  ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)",
     "  ds-harness-remote register <server-token>",
     "  ds-harness-remote status",
     "  ds-harness-remote logout",
