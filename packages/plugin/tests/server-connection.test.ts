@@ -67,7 +67,7 @@ describe('HostServerConnection', () => {
       close: vi.fn(async () => undefined),
     } as unknown as ConnectionController
     const api = {
-      baseUrl: 'https://dsh.r2049.cn',
+      baseUrl: 'https://relay.example.com',
       authenticate: vi.fn(async () => ({ accessToken: 'access-token-value' })),
       refreshCredentials: vi.fn(),
       deviceFor: vi.fn(async () => ({
@@ -206,7 +206,7 @@ describe('HostServerConnection', () => {
   it('stops reconnecting until account authorization is supplied', async () => {
     const keys = generateKeyPair(new Uint8Array(32).fill(13))
     const api = {
-      baseUrl: 'https://dsh.r2049.cn',
+      baseUrl: 'https://relay.example.com',
       authenticate: vi.fn(async () => {
         throw new ServerApiError('ACCOUNT_AUTH_REQUIRED', 'account login required', false, 401)
       }),
@@ -234,7 +234,7 @@ describe('HostServerConnection', () => {
     let socketIndex = 0
     const createWebSocket = vi.fn(() => sockets[socketIndex++]!)
     const api = {
-      baseUrl: 'https://dsh.r2049.cn',
+      baseUrl: 'https://relay.example.com',
       authenticate: vi.fn(async () => ({ accessToken: 'access-token-value' })),
     } as unknown as HostServerApi
     const server = new HostServerConnection(
@@ -274,7 +274,7 @@ describe('HostServerConnection', () => {
       const keys = generateKeyPair(new Uint8Array(32).fill(24))
       const sockets: FakeWebSocket[] = []
       const api = {
-        baseUrl: 'https://dsh.r2049.cn',
+        baseUrl: 'https://relay.example.com',
         authenticate: vi.fn(async () => ({ accessToken: sockets.length === 0 ? 'old-access-value' : 'new-access-value' })),
         refreshCredentials: vi.fn(async () => {
           if (scenario === 'refresh-rejected') throw new ServerApiError('AUTH_INVALID', 'refresh rejected', false, 401, 'credential_refresh')
@@ -353,7 +353,7 @@ describe('HostServerConnection', () => {
         .mockRejectedValueOnce(new ServerApiError(code, 'temporary refresh failure', true, code === 'RATE_LIMITED' ? 429 : undefined, 'credential_refresh'))
         .mockImplementation(async () => { accessToken = 'new-access-value' })
       const api = {
-        baseUrl: 'https://dsh.r2049.cn',
+        baseUrl: 'https://relay.example.com',
         authenticate: vi.fn(async () => ({ accessToken })),
         refreshCredentials,
       } as unknown as HostServerApi
@@ -404,7 +404,7 @@ describe('HostServerConnection', () => {
       config(),
       { schemaVersion: 1, deviceId: 'host-rtc', name: 'Host', fingerprint: 'HOST', ...keys },
       { trustedPeer: vi.fn() } as unknown as IdentityStore,
-      { baseUrl: 'https://dsh.r2049.cn' } as HostServerApi,
+      { baseUrl: 'https://relay.example.com' } as HostServerApi,
       { closeConnection } as unknown as ConnectionController,
       logger(),
       () => new FakeWebSocket(),
@@ -439,7 +439,7 @@ describe('HostServerConnection', () => {
       config(),
       { schemaVersion: 1, deviceId: 'host-negotiating', name: 'Host', fingerprint: 'HOST', ...keys },
       { trustedPeer: vi.fn() } as unknown as IdentityStore,
-      { baseUrl: 'https://dsh.r2049.cn' } as HostServerApi,
+      { baseUrl: 'https://relay.example.com' } as HostServerApi,
       { closeConnection } as unknown as ConnectionController,
       logger(),
       () => new FakeWebSocket(),
@@ -655,7 +655,7 @@ function config(): ResolvedConfig {
     loopback: { ports: [] },
     enabled: true,
     role: 'host',
-    serverUrl: 'https://dsh.r2049.cn',
+    serverUrl: 'https://relay.example.com',
     deviceName: 'Host',
     forceRelay: true,
     logLevel: 'error',

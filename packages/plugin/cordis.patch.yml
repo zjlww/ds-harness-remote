@@ -11,7 +11,7 @@
       config:
         enabled: true
         role: host
-        serverUrl: https://dsh.r2049.cn
+        serverUrl: ""
         codex:
           enabled: true
           binary: codex
@@ -26,7 +26,7 @@
       config:
         enabled: true
         role: host
-        serverUrl: https://dsh.r2049.cn
+        serverUrl: ""
         codex:
           enabled: true
           binary: codex

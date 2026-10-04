@@ -105,7 +105,8 @@ describe('Cordis plugin lifecycle', () => {
         failure: vi.fn(() => ({ code: 'internal', message: 'failed', details: {} })),
       },
     } as never)
-    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis alpha host' })
+    // A TUI Host no longer inherits a third-party Server default, so it must name one.
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis alpha host', serverUrl: 'https://relay.example.com' })
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis alpha host' })
@@ -243,7 +244,7 @@ describe('Cordis plugin lifecycle', () => {
 
     const fiber = await ctx.plugin(remotePlugin, {
       role: 'client',
-      serverUrl: 'https://dsh.r2049.cn',
+      serverUrl: 'https://relay.example.com',
       deviceName: 'Former client',
     })
 

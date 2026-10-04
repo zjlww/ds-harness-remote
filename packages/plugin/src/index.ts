@@ -172,7 +172,7 @@ async function activate(
   const resolvedConfig = resolveConfig(settingsBinding?.get() ?? readConfig())
   // dsh-TUI has no settings UI or browser connection. In that profile the
   // QR-authorized Host is enabled against the hosted Server by default.
-  const config: ResolvedConfig = connection === undefined && resolvedConfig.serverUrl === undefined
+  const config: ResolvedConfig = resolvedConfig.serverUrl === undefined && DEFAULT_REMOTE_SERVER_URL !== ''
     ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL }
     : resolvedConfig
   const defaultIdentityDirectory = new IdentityStore().directory

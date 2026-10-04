@@ -1086,14 +1086,14 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState<LocalizedMessage | undefined>(undefined)
       const [error, setError] = React.useState<string | undefined>(undefined)
       const [settingsView, setSettingsView] = React.useState<PluginSettingsView | undefined>(undefined)
-      const persistedServerUrl = settingsView?.config.serverUrl ?? 'https://dsh.r2049.cn'
+      const persistedServerUrl = settingsView?.config.serverUrl ?? ''
       const association = associations.client ?? associations.host
       const serverDirty = settingsView !== undefined && serverUrl !== persistedServerUrl
       const draftDirty = serverDirty
 
       const applyView = (view: PluginSettingsView): void => {
         setSettingsView(view)
-        setServerUrl(view.config.serverUrl ?? 'https://dsh.r2049.cn')
+        setServerUrl(view.config.serverUrl ?? '')
         setCodexEnabled(view.config.codex?.enabled ?? true)
         setTerminalEnabled(view.config.terminal?.enabled ?? true)
         setPreviewPorts((view.config.loopback?.ports ?? []).join(', '))
@@ -1406,7 +1406,7 @@ window.__ModuleLoader__.load({
             value: serverUrl,
             disabled: true,
             required: true,
-            placeholder: 'https://dsh.r2049.cn',
+            placeholder: 'https://remote.example.com',
             onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setNotice(undefined) },
           }),
           React.createElement('p', null, t('serverUrlHint'))),
@@ -1479,7 +1479,7 @@ window.__ModuleLoader__.load({
             value: serverUrl,
             disabled: busy || !writable,
             required: true,
-            placeholder: 'https://dsh.r2049.cn',
+            placeholder: 'https://remote.example.com',
             onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setNotice(undefined) },
           }),
           React.createElement('p', null, t('serverUrlHint'))),
@@ -1529,7 +1529,7 @@ window.__ModuleLoader__.load({
       const [needsAuthorization, setNeedsAuthorization] = React.useState(false)
       const [email, setEmail] = React.useState('')
       const [password, setPassword] = React.useState('')
-      const [loginServerUrl, setLoginServerUrl] = React.useState('https://dsh.r2049.cn')
+      const [loginServerUrl, setLoginServerUrl] = React.useState('')
       const [loginMethod, setLoginMethod] = React.useState<LoginMethod>(props.preferredQrProvider)
       const [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(false)
       const [qrSession, setQrSession] = React.useState<OAuthQrSession | undefined>(undefined)
@@ -1581,7 +1581,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       React.useEffect(() => {
-        if (status?.serverUrl !== undefined && loginServerUrl === 'https://dsh.r2049.cn') {
+        if (status?.serverUrl !== undefined && loginServerUrl === '') {
           setLoginServerUrl(status.serverUrl)
         }
       }, [status?.serverUrl])

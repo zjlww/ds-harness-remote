@@ -13,7 +13,7 @@ import type { Credentials, DeviceIdentity } from './types.js'
 
 const IDENTITY_KEY = 'dshRemote.identity.v1'
 const CREDENTIALS_KEY = 'dshRemote.credentials.v1'
-const DEFAULT_SERVER_URL = 'https://dsh.r2049.cn'
+const DEFAULT_SERVER_URL = ''
 
 async function storageGet<T>(key: string): Promise<T | undefined> {
   const result = await chrome.storage.local.get(key)

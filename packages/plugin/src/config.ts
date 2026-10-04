@@ -3,7 +3,9 @@ import type { Volatile, VolatileSnapshot } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 
-export const DEFAULT_REMOTE_SERVER_URL = 'https://dsh.r2049.cn'
+// No relay is assumed. A deployment must name the Server it trusts, so a missing
+// configuration fails closed instead of sending traffic to a third party.
+export const DEFAULT_REMOTE_SERVER_URL = ''
 
 export interface Config {
   enabled?: boolean

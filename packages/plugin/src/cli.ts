@@ -113,11 +113,11 @@ async function loginAccount(args: readonly string[], runtime: CliRuntime): Promi
   if (positional.length > 1 || account === undefined || account.trim() === '') {
     throw new CliUsageError('Usage: ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)')
   }
-  const password = process.env.DSH_REMOTE_PASSWORD ?? ''
+  const password = runtime.env.DSH_REMOTE_PASSWORD ?? ''
   if (password === '') {
     throw new CliUsageError('Set DSH_REMOTE_PASSWORD to the account password (it is not accepted as an argument).')
   }
-  const serverUrl = normalizeServerUrl(flags.get('server') ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+  const serverUrl = selectedServerFor(runtime, flags)
   const root = new IdentityStore({ env: runtime.env }).directory
   const directory = serverStorageDirectory(root, serverUrl, 'host')
   const identities = runtime.createIdentityStore({ directory, env: runtime.env })
@@ -174,7 +174,7 @@ async function login(args: readonly string[], runtime: CliRuntime): Promise<numb
 
 async function status(args: readonly string[], runtime: CliRuntime): Promise<number> {
   if (args.length !== 0) throw new CliUsageError('Usage: ds-harness-remote status')
-  const serverUrl = selectedServer()
+  const serverUrl = selectedServer(runtime.env)
   const root = new IdentityStore({ env: runtime.env }).directory
   const directory = serverStorageDirectory(root, serverUrl, 'host')
   const lines = [
@@ -219,7 +219,7 @@ async function status(args: readonly string[], runtime: CliRuntime): Promise<num
 
 async function logout(args: readonly string[], runtime: CliRuntime): Promise<number> {
   if (args.length !== 0) throw new CliUsageError('Usage: ds-harness-remote logout')
-  const serverUrl = selectedServer()
+  const serverUrl = selectedServer(runtime.env)
   const root = new IdentityStore({ env: runtime.env }).directory
   const directory = serverStorageDirectory(root, serverUrl, 'host')
   if (!await exists(join(directory, 'device.json'))) {
@@ -253,7 +253,7 @@ async function hostContext(runtime: CliRuntime): Promise<{
   identity: HostIdentity
   deviceName: string
 }> {
-  const serverUrl = selectedServer()
+  const serverUrl = selectedServer(runtime.env)
   const root = new IdentityStore({ env: runtime.env }).directory
   const directory = serverStorageDirectory(root, serverUrl, 'host')
   const deviceName = hostname()
@@ -263,10 +263,21 @@ async function hostContext(runtime: CliRuntime): Promise<{
   return { api, identities, identity, deviceName }
 }
 
-function selectedServer(): string {
-  // Self-hosted relays must be reachable from this CLI, so honour an explicit
-  // override before falling back to the built-in default.
-  return normalizeServerUrl(process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+function selectedServer(env: NodeJS.ProcessEnv): string {
+  // No relay is assumed. Traffic must go to a Server the operator named, so a missing
+  // configuration fails loudly here instead of reaching a third-party default.
+  const configured = env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL
+  if (configured === '') {
+    throw new CliUsageError('No Remote Server is configured. Set DSH_REMOTE_SERVER_URL (or pass --server <url>) to the relay you operate.')
+  }
+  return normalizeServerUrl(configured)
+}
+
+/** Resolves --server, then the environment, then the (empty) built-in default. */
+function selectedServerFor(runtime: CliRuntime, flags: Map<string, string>): string {
+  const explicit = flags.get('server')
+  if (explicit !== undefined) return normalizeServerUrl(explicit)
+  return selectedServer(runtime.env)
 }
 
 /**
@@ -335,7 +346,7 @@ function peerRole(flags: Map<string, string>): 'host' | 'client' {
 
 /** The peer role we pin is the *other* side's storage directory, keyed by our own role. */
 function peerIdentityStore(runtime: CliRuntime, peerRoleName: 'host' | 'client', flags: Map<string, string>): IdentityStore {
-  const serverUrl = normalizeServerUrl(flags.get('server') ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+  const serverUrl = selectedServerFor(runtime, flags)
   const root = new IdentityStore({ env: runtime.env }).directory
   return runtime.createIdentityStore({
     directory: serverStorageDirectory(root, serverUrl, peerRoleName),

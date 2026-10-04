@@ -41,7 +41,7 @@
       "properties": {
         "dshRemote.serverUrl": {
           "type": "string",
-          "default": "https://dsh.r2049.cn",
+          "default": "",
           "description": "%configuration.serverUrl%"
         },
         "dshRemote.forceRelay": {

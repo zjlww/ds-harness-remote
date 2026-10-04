@@ -93,7 +93,7 @@ describe('ClientModeRuntime Host account control', () => {
     directories.push(directory)
     const startOAuthQrLogin = vi.fn(async (provider: string) => ({
       qrId: `${provider}-qr-session-1234567890`,
-      scanUrl: `https://dsh.r2049.cn/api/v1/auth/q/${provider}-qr-session-1234567890`,
+      scanUrl: `https://relay.example.com/api/v1/auth/q/${provider}-qr-session-1234567890`,
       expiresIn: 600,
     }))
     const runtime = new ClientModeRuntime(
@@ -157,7 +157,7 @@ describe('ClientModeRuntime Host account control', () => {
     const connectionDetails = vi.fn(async () => ({
       connectionId: 'connection-1',
       connectedAt: 1_786_000_000_000,
-      controlChannelUrl: 'wss://dsh.r2049.cn/ws/v1/connect',
+      controlChannelUrl: 'wss://relay.example.com/ws/v1/connect',
       controlChannelState: 'open' as const,
       preferredTransports: ['lan', 'p2p', 'turn', 'relay'] as const,
       webRtc: {
@@ -826,7 +826,7 @@ describe('ClientModeRuntime Host account control', () => {
 function clientServerWithHostKey(identityKey: string | (() => string)) {
   const read = (): string => typeof identityKey === 'function' ? identityKey() : identityKey
   return {
-    baseUrl: 'https://dsh.r2049.cn',
+    baseUrl: 'https://relay.example.com',
     bindIdentity: vi.fn(),
     listDevices: vi.fn(async () => [{
       deviceId: 'host-device-1',
@@ -852,7 +852,7 @@ function config(): ResolvedConfig {
     loopback: { ports: [] },
     enabled: true,
     role: 'both',
-    serverUrl: 'https://dsh.r2049.cn',
+    serverUrl: 'https://relay.example.com',
     deviceName: 'Local Harness',
     forceRelay: false,
     logLevel: 'error',

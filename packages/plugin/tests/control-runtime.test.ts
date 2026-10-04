@@ -119,7 +119,7 @@ describe('PluginControlRuntime settings setup', () => {
       authorizeHostWithCode: vi.fn(),
     } satisfies HostAuthorizationControl
     const handler = register(new PluginControlRuntime(
-      resolveConfig({ serverUrl: 'https://dsh.r2049.cn' }), '/unused', undefined, undefined, host,
+      resolveConfig({ serverUrl: 'https://relay.example.com' }), '/unused', undefined, undefined, host,
     ))
 
     await expect(handler('host.reconnect', {}, signal())).resolves.toMatchObject({
@@ -162,7 +162,7 @@ describe('PluginControlRuntime settings setup', () => {
 
     const result = await handler('settings.configure', {
       role: 'host',
-      serverUrl: 'https://dsh.r2049.cn/',
+      serverUrl: 'https://relay.example.com/',
       email: 'host@example.com',
       password: 'correct horse battery staple',
     }, signal())
@@ -176,7 +176,7 @@ describe('PluginControlRuntime settings setup', () => {
         settings: { association: { method: 'account', account: 'host@example.com' } },
       },
     })
-    expect(settings.get()).toMatchObject({ role: 'host', serverUrl: 'https://dsh.r2049.cn' })
+    expect(settings.get()).toMatchObject({ role: 'host', serverUrl: 'https://relay.example.com' })
     expect(settings.get()).not.toHaveProperty('deviceName')
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ device: { name: hostname(), role: 'host' } })
     expect(JSON.stringify(settings.get())).not.toContain('correct horse battery staple')
@@ -193,11 +193,11 @@ describe('PluginControlRuntime settings setup', () => {
       },
     })
     expect(calls).toHaveLength(3)
-    expect(calls[2]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-owned-role')
+    expect(calls[2]?.url).toBe('https://relay.example.com/api/v1/devices/register-owned-role')
     expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
     expect(JSON.parse(String(calls[2]?.init?.body))).toMatchObject({ device: { role: 'client' } })
-    const hostDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'host')
-    const clientDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'client')
+    const hostDirectory = serverStorageDirectory(directory, 'https://relay.example.com', 'host')
+    const clientDirectory = serverStorageDirectory(directory, 'https://relay.example.com', 'client')
     await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).resolves.toContain('host@example.com')
     await expect(readFile(join(clientDirectory, 'server-credentials.json'), 'utf8')).resolves.toContain('owned_device')
     await expect(handler('settings.role.set', { role: 'host' }, signal())).resolves.toMatchObject({
@@ -236,7 +236,7 @@ describe('PluginControlRuntime settings setup', () => {
 
     const configured = await handler('settings.configure', {
       role: 'client',
-      serverUrl: 'https://dsh.r2049.cn',
+      serverUrl: 'https://relay.example.com',
       email: 'client@example.com',
       password: 'correct horse battery staple',
     }, signal())
@@ -250,7 +250,7 @@ describe('PluginControlRuntime settings setup', () => {
       },
     })
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ device: { name: hostname(), role: 'client' } })
-    const clientDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'client')
+    const clientDirectory = serverStorageDirectory(directory, 'https://relay.example.com', 'client')
     const stored = await readFile(join(clientDirectory, 'server-credentials.json'), 'utf8')
     expect(stored).toContain('client@example.com')
     expect(stored).not.toContain('correct horse battery staple')
@@ -271,7 +271,7 @@ describe('PluginControlRuntime settings setup', () => {
 
     const configured = await handler('settings.configure', {
       role: 'host',
-      serverUrl: 'https://dsh.r2049.cn',
+      serverUrl: 'https://relay.example.com',
       registrationCode: 'ABCD-EFGH',
     }, signal())
 
@@ -283,7 +283,7 @@ describe('PluginControlRuntime settings setup', () => {
         settings: { association: { method: 'host_registration_code' } },
       },
     })
-    expect(calls[0]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-with-code')
+    expect(calls[0]?.url).toBe('https://relay.example.com/api/v1/devices/register-with-code')
     expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
       code: 'ABCD-EFGH',
       device: { name: hostname(), role: 'host' },
@@ -296,7 +296,7 @@ describe('PluginControlRuntime settings setup', () => {
         association: { method: 'owned_device' },
       },
     })
-    expect(calls[1]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-owned-role')
+    expect(calls[1]?.url).toBe('https://relay.example.com/api/v1/devices/register-owned-role')
     expect(calls[1]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({
       device: { name: hostname(), role: 'client' },

@@ -18296,7 +18296,7 @@ function safeMessage(error) {
 // src/config.ts
 import { hostname } from "node:os";
 import s from "@deepseek-ai/schemastery";
-var DEFAULT_REMOTE_SERVER_URL = "https://dsh.r2049.cn";
+var DEFAULT_REMOTE_SERVER_URL = "";
 var entryConfigSchema = s.object({
   enabled: s.boolean(),
   role: s.union(["host", "client", "both"]),
@@ -27518,11 +27518,11 @@ async function loginAccount(args, runtime) {
   if (positional.length > 1 || account === void 0 || account.trim() === "") {
     throw new CliUsageError("Usage: ds-harness-remote login-account <email> [--server <url>]   (password from DSH_REMOTE_PASSWORD)");
   }
-  const password = process.env.DSH_REMOTE_PASSWORD ?? "";
+  const password = runtime.env.DSH_REMOTE_PASSWORD ?? "";
   if (password === "") {
     throw new CliUsageError("Set DSH_REMOTE_PASSWORD to the account password (it is not accepted as an argument).");
   }
-  const serverUrl = normalizeServerUrl(flags.get("server") ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+  const serverUrl = selectedServerFor(runtime, flags);
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
   const identities = runtime.createIdentityStore({ directory, env: runtime.env });
@@ -27585,7 +27585,7 @@ Waiting for authorization...
 }
 async function status(args, runtime) {
   if (args.length !== 0) throw new CliUsageError("Usage: ds-harness-remote status");
-  const serverUrl = selectedServer();
+  const serverUrl = selectedServer(runtime.env);
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
   const lines = [
@@ -27634,7 +27634,7 @@ Run "ds-harness-remote login" or use "/remote login" in dsh-TUI.
 }
 async function logout(args, runtime) {
   if (args.length !== 0) throw new CliUsageError("Usage: ds-harness-remote logout");
-  const serverUrl = selectedServer();
+  const serverUrl = selectedServer(runtime.env);
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
   if (!await exists3(join7(directory, "device.json"))) {
@@ -27661,7 +27661,7 @@ async function logout(args, runtime) {
   return 0;
 }
 async function hostContext(runtime) {
-  const serverUrl = selectedServer();
+  const serverUrl = selectedServer(runtime.env);
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
   const deviceName = hostname3();
@@ -27670,8 +27670,17 @@ async function hostContext(runtime) {
   const api = runtime.createHostApi(serverUrl, new ServerCredentialStore(directory));
   return { api, identities, identity, deviceName };
 }
-function selectedServer() {
-  return normalizeServerUrl(process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+function selectedServer(env) {
+  const configured = env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL;
+  if (configured === "") {
+    throw new CliUsageError("No Remote Server is configured. Set DSH_REMOTE_SERVER_URL (or pass --server <url>) to the relay you operate.");
+  }
+  return normalizeServerUrl(configured);
+}
+function selectedServerFor(runtime, flags) {
+  const explicit = flags.get("server");
+  if (explicit !== void 0) return normalizeServerUrl(explicit);
+  return selectedServer(runtime.env);
 }
 async function trust(args, runtime) {
   const { positional, flags } = parseFlags(args);
@@ -27731,7 +27740,7 @@ function peerRole(flags) {
   return role;
 }
 function peerIdentityStore(runtime, peerRoleName, flags) {
-  const serverUrl = normalizeServerUrl(flags.get("server") ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+  const serverUrl = selectedServerFor(runtime, flags);
   const root = new IdentityStore({ env: runtime.env }).directory;
   return runtime.createIdentityStore({
     directory: serverStorageDirectory(root, serverUrl, peerRoleName),
@@ -28330,7 +28339,7 @@ async function activate(ctx, readConfig, entryId, tuiBinding) {
   const connection = ctx.get("connection");
   const webServer = ctx.get("webServer");
   const resolvedConfig = resolveConfig(settingsBinding?.get() ?? readConfig());
-  const config = connection === void 0 && resolvedConfig.serverUrl === void 0 ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL } : resolvedConfig;
+  const config = resolvedConfig.serverUrl === void 0 && DEFAULT_REMOTE_SERVER_URL !== "" ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL } : resolvedConfig;
   const defaultIdentityDirectory = new IdentityStore().directory;
   if (!config.enabled) {
     if (connection !== void 0) {
