@@ -1,23 +1,6 @@
 import type { PairLink } from '../types'
 import { strings as zhCN } from '../locales/i18n'
 
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '10.0.2.2'])
-
-/** Private-network IPv4 ranges reachable only on a LAN/VPN (RFC1918, link-local, CGNAT). */
-function isPrivateHostname(hostname: string): boolean {
-  if (LOCAL_HOSTS.has(hostname)) return true
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname)
-  if (match === null) return false
-  const [a, b] = [Number(match[1]), Number(match[2])]
-  return (
-    a === 10 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254) ||
-    (a === 100 && b >= 64 && b <= 127)
-  )
-}
-
 export function normalizeServerUrl(input: string): string {
   const value = input.trim().replace(/\/+$/, '')
   if (value.length === 0) throw new Error(zhCN.validation.serverRequired)
@@ -30,7 +13,10 @@ export function normalizeServerUrl(input: string): string {
     throw new Error(zhCN.validation.serverInvalid)
   }
 
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isPrivateHostname(url.hostname))) {
+  // HTTPS only. A bearer token is sent to this origin on every request, and the app
+  // no longer permits cleartext traffic, so accepting http:// here would only produce a
+  // confusing runtime failure while inviting token theft on a shared network.
+  if (url.protocol !== 'https:') {
     throw new Error(zhCN.validation.httpsRequired)
   }
   if (url.username || url.password || url.search || url.hash) {

@@ -21257,6 +21257,12 @@ var trustedPeersSchema = external_exports.object({
 var IdentityInvalidError = class extends Error {
   code = "IDENTITY_INVALID";
 };
+var PeerVerificationError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+};
 var IdentityStore = class {
   directory;
   identity;
@@ -21322,12 +21328,58 @@ var IdentityStore = class {
   isTrusted(deviceId, publicKey) {
     return this.peers.get(deviceId)?.publicKey === publicKey;
   }
-  async trustPeer(input2) {
+  /**
+   * Pins a peer key that an operator or installer has already checked out of band.
+   *
+   * This is the only way a *new* peer becomes trusted. The ordinary `trustPeer`
+   * refuses keys it has not seen before, because the only other source of a peer
+   * identity key is the relay Server, which also relays the traffic — a Server that
+   * answers with its own key would otherwise be pinned silently and the
+   * end-to-end channel would terminate at the Server.
+   */
+  async verifyPeer(input2) {
     this.current();
+    const existing = this.peers.get(input2.deviceId);
+    if (existing !== void 0 && existing.publicKey !== input2.publicKey) {
+      throw new PeerVerificationError(
+        "PEER_IDENTITY_MISMATCH",
+        `Device ${input2.deviceId} is already pinned with a different key (${existing.fingerprint}). Revoke it before pinning a new key.`
+      );
+    }
     const peer = {
       ...input2,
       fingerprint: fingerprint(input2.publicKey),
-      trustedAt: Date.now()
+      trustedAt: existing?.trustedAt ?? Date.now()
+    };
+    this.peers.set(peer.deviceId, peer);
+    await this.savePeers();
+    return { ...peer };
+  }
+  /**
+   * Records a peer that the relay advertised. A peer that is already pinned to the
+   * same key is refreshed in place; anything new is refused, because an unverified
+   * key is exactly the value a hostile Server would substitute.
+   */
+  async trustPeer(input2) {
+    this.current();
+    const existing = this.peers.get(input2.deviceId);
+    if (existing === void 0) {
+      throw new PeerVerificationError(
+        "PEER_NOT_VERIFIED",
+        `Device ${input2.deviceId} is not verified on this machine yet (offered fingerprint ${fingerprint(input2.publicKey)}). Verify it out of band, then run \`ds-harness-remote trust <deviceId> <publicKey>\` to pin it.`
+      );
+    }
+    if (existing.publicKey !== input2.publicKey) {
+      throw new PeerVerificationError(
+        "PEER_IDENTITY_MISMATCH",
+        `Device ${input2.deviceId} is pinned as ${existing.fingerprint} but the Server offered a different key. Refusing to replace the pin; investigate before re-verifying.`
+      );
+    }
+    const peer = {
+      ...existing,
+      name: input2.name,
+      platform: input2.platform,
+      ...input2.membershipId === void 0 ? {} : { membershipId: input2.membershipId }
     };
     this.peers.set(peer.deviceId, peer);
     await this.savePeers();
@@ -27435,6 +27487,8 @@ async function runCli(args = process.argv.slice(2), dependencies = {}) {
     if (command === "register") return await register(rest, runtime);
     if (command === "status") return await status(rest, runtime);
     if (command === "logout") return await logout(rest, runtime);
+    if (command === "trust") return await trust(rest, runtime);
+    if (command === "untrust") return await untrust(rest, runtime);
     if (command === "help" || command === "--help" || command === "-h" || command === void 0) {
       write(runtime.stdout, helpText());
       return 0;
@@ -27589,7 +27643,72 @@ async function hostContext(runtime) {
   return { api, identities, identity, deviceName };
 }
 function selectedServer() {
-  return normalizeServerUrl(DEFAULT_REMOTE_SERVER_URL);
+  return normalizeServerUrl(process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+}
+async function trust(args, runtime) {
+  const { positional, flags } = parseFlags(args);
+  const [deviceId, publicKey] = positional;
+  if (positional.length !== 2 || deviceId === void 0 || publicKey === void 0 || deviceId.trim() === "" || publicKey.trim() === "") {
+    throw new CliUsageError("Usage: ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]");
+  }
+  const role = peerRole(flags);
+  const identities = peerIdentityStore(runtime, role, flags);
+  await identities.loadOrCreate(hostname3());
+  const peer = await identities.verifyPeer({
+    deviceId: deviceId.trim(),
+    publicKey: publicKey.trim(),
+    name: flags.get("name")?.trim() || deviceId.trim(),
+    platform: flags.get("platform")?.trim() || "unknown"
+  });
+  write(runtime.stdout, `Pinned ${role} peer ${peer.deviceId}
+  fingerprint ${peer.fingerprint}
+`);
+  return 0;
+}
+async function untrust(args, runtime) {
+  const { positional, flags } = parseFlags(args);
+  const [deviceId] = positional;
+  if (positional.length !== 1 || deviceId === void 0 || deviceId.trim() === "") {
+    throw new CliUsageError("Usage: ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]");
+  }
+  const role = peerRole(flags);
+  const identities = peerIdentityStore(runtime, role, flags);
+  await identities.loadOrCreate(hostname3());
+  const removed = await identities.revokePeer(deviceId.trim());
+  write(runtime.stdout, removed ? `Removed the pin for ${deviceId.trim()}
+` : `No pin existed for ${deviceId.trim()}
+`);
+  return removed ? 0 : 1;
+}
+function parseFlags(args) {
+  const positional = [];
+  const flags = /* @__PURE__ */ new Map();
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (!value.startsWith("--")) {
+      positional.push(value);
+      continue;
+    }
+    const name2 = value.slice(2);
+    const next = args[index + 1];
+    if (next === void 0 || next.startsWith("--")) throw new CliUsageError(`Option --${name2} needs a value.`);
+    flags.set(name2, next);
+    index += 1;
+  }
+  return { positional, flags };
+}
+function peerRole(flags) {
+  const role = flags.get("role") ?? "host";
+  if (role !== "host" && role !== "client") throw new CliUsageError("--role must be host or client.");
+  return role;
+}
+function peerIdentityStore(runtime, peerRoleName, flags) {
+  const serverUrl = normalizeServerUrl(flags.get("server") ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL);
+  const root = new IdentityStore({ env: runtime.env }).directory;
+  return runtime.createIdentityStore({
+    directory: serverStorageDirectory(root, serverUrl, peerRoleName),
+    env: runtime.env
+  });
 }
 function resolveDependencies(input2) {
   return {
@@ -27667,10 +27786,14 @@ function helpText() {
     "  ds-harness-remote register <server-token>",
     "  ds-harness-remote status",
     "  ds-harness-remote logout",
+    "  ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]",
+    "  ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]",
     "",
     "Inside dsh-TUI, use /remote login, /remote status, or /remote logout.",
     "login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.",
-    `The Server is ${DEFAULT_REMOTE_SERVER_URL}.`,
+    `The Server defaults to ${DEFAULT_REMOTE_SERVER_URL}; set DSH_REMOTE_SERVER_URL or pass --server to use a self-hosted relay.`,
+    "A peer key is only accepted after it has been checked out of band: pin it with `trust` before",
+    "connecting, otherwise the first connection is refused with PEER_NOT_VERIFIED.",
     "Host configuration is not exposed by this CLI yet. Restart dsh-tui after login or logout.",
     ""
   ].join("\n");

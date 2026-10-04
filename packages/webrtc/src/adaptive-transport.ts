@@ -1,5 +1,6 @@
 import { waitForRelayCapacity } from './websocket-backpressure.js'
 import {
+  MAX_WEBRTC_FALLBACK_TIMEOUT_MS,
   PROTOCOL_VERSION,
   acceptNegotiatedCapabilities,
   createControlFrame,
@@ -245,7 +246,9 @@ export class AdaptiveTransport extends BaseTransport {
         if (typeof payload.webrtcFallbackTimeoutMs === 'number'
           && Number.isSafeInteger(payload.webrtcFallbackTimeoutMs)
           && payload.webrtcFallbackTimeoutMs > 0) {
-          this.serverNegotiateTimeoutMs = payload.webrtcFallbackTimeoutMs
+          // Clamp: the Server chooses this window, and it bounds how long candidates
+          // are buffered. An unbounded value would let the Server pick peak memory.
+          this.serverNegotiateTimeoutMs = Math.min(payload.webrtcFallbackTimeoutMs, MAX_WEBRTC_FALLBACK_TIMEOUT_MS)
         }
         this.sendControl('connect.request', {
           hostDeviceId: this.options.targetDeviceId,

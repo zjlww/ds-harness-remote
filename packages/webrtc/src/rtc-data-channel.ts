@@ -1,4 +1,4 @@
-import type { TransportStats } from '@dsh-remote/protocol'
+import { MAX_ICE_CANDIDATES_PER_CONNECTION, type TransportStats } from '@dsh-remote/protocol'
 import {
   RTC_DATA_CHANNEL_LABEL,
   RTC_DATA_CHANNEL_OPTIONS,
@@ -408,6 +408,13 @@ export class RtcDataChannelTransport {
   private async handleIce(candidate: RtcIceCandidateInit): Promise<void> {
     const summary = summarizeIceCandidate(candidate)
     if (!this.remoteDescriptionSet) {
+      // Candidates are buffered until the remote description arrives, and the
+      // signalling peer controls how long that takes. Cap the buffer so a peer that
+      // withholds its answer cannot grow this list without bound.
+      if (this.remoteCandidates.length >= MAX_ICE_CANDIDATES_PER_CONNECTION) {
+        this.emitDiagnostic({ type: 'remote-candidate', candidate: summary, action: 'ignored', diagnostics: this.diagnostics() })
+        return
+      }
       recordCandidate(this.remoteCandidateTelemetry, summary)
       this.emitDiagnostic({ type: 'remote-candidate', candidate: summary, action: 'buffered', diagnostics: this.diagnostics() })
       this.remoteCandidates.push(candidate)

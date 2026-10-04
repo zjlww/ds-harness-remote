@@ -59,6 +59,11 @@ export class IdentityInvalidError extends Error {
   readonly code = 'IDENTITY_INVALID'
 }
 
+/** Raised when a peer key cannot be trusted without out-of-band verification. */
+export class PeerVerificationError extends Error {
+  constructor(readonly code: 'PEER_NOT_VERIFIED' | 'PEER_IDENTITY_MISMATCH', message: string) { super(message) }
+}
+
 export class IdentityStore {
   readonly directory: string
   private identity?: HostIdentity
@@ -133,12 +138,63 @@ export class IdentityStore {
     return this.peers.get(deviceId)?.publicKey === publicKey
   }
 
-  async trustPeer(input: Omit<TrustedPeer, 'fingerprint' | 'trustedAt'>): Promise<TrustedPeer> {
+  /**
+   * Pins a peer key that an operator or installer has already checked out of band.
+   *
+   * This is the only way a *new* peer becomes trusted. The ordinary `trustPeer`
+   * refuses keys it has not seen before, because the only other source of a peer
+   * identity key is the relay Server, which also relays the traffic — a Server that
+   * answers with its own key would otherwise be pinned silently and the
+   * end-to-end channel would terminate at the Server.
+   */
+  async verifyPeer(input: Omit<TrustedPeer, 'fingerprint' | 'trustedAt'>): Promise<TrustedPeer> {
     this.current()
+    const existing = this.peers.get(input.deviceId)
+    if (existing !== undefined && existing.publicKey !== input.publicKey) {
+      throw new PeerVerificationError(
+        'PEER_IDENTITY_MISMATCH',
+        `Device ${input.deviceId} is already pinned with a different key `
+        + `(${existing.fingerprint}). Revoke it before pinning a new key.`,
+      )
+    }
     const peer: TrustedPeer = {
       ...input,
       fingerprint: fingerprint(input.publicKey),
-      trustedAt: Date.now(),
+      trustedAt: existing?.trustedAt ?? Date.now(),
+    }
+    this.peers.set(peer.deviceId, peer)
+    await this.savePeers()
+    return { ...peer }
+  }
+
+  /**
+   * Records a peer that the relay advertised. A peer that is already pinned to the
+   * same key is refreshed in place; anything new is refused, because an unverified
+   * key is exactly the value a hostile Server would substitute.
+   */
+  async trustPeer(input: Omit<TrustedPeer, 'fingerprint' | 'trustedAt'>): Promise<TrustedPeer> {
+    this.current()
+    const existing = this.peers.get(input.deviceId)
+    if (existing === undefined) {
+      throw new PeerVerificationError(
+        'PEER_NOT_VERIFIED',
+        `Device ${input.deviceId} is not verified on this machine yet `
+        + `(offered fingerprint ${fingerprint(input.publicKey)}). Verify it out of band, then run `
+        + '`ds-harness-remote trust <deviceId> <publicKey>` to pin it.',
+      )
+    }
+    if (existing.publicKey !== input.publicKey) {
+      throw new PeerVerificationError(
+        'PEER_IDENTITY_MISMATCH',
+        `Device ${input.deviceId} is pinned as ${existing.fingerprint} but the Server offered a different key. `
+        + 'Refusing to replace the pin; investigate before re-verifying.',
+      )
+    }
+    const peer: TrustedPeer = {
+      ...existing,
+      name: input.name,
+      platform: input.platform,
+      ...(input.membershipId === undefined ? {} : { membershipId: input.membershipId }),
     }
     this.peers.set(peer.deviceId, peer)
     await this.savePeers()

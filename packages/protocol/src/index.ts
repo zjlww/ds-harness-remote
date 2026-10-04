@@ -40,6 +40,12 @@ export const MAX_PENDING_RPC_PER_CONNECTION = 128
 export const MAX_PENDING_PERMISSION_PER_SESSION = 16
 /** Maximum ICE candidates收集 per connection. */
 export const MAX_ICE_CANDIDATES_PER_CONNECTION = 256
+/**
+ * Upper bound for a Server-advertised WebRTC fallback window. The window controls how
+ * long ICE candidates are buffered, so an unbounded value lets the Server pick peak
+ * memory. One minute is far above any real handshake.
+ */
+export const MAX_WEBRTC_FALLBACK_TIMEOUT_MS = 60_000
 /** Maximum active transfers per direction per connection. */
 export const MAX_ACTIVE_TRANSFERS_PER_DIRECTION = 2
 /** Transfer idle timeout before automatic cleanup. */

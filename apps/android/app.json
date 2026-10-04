@@ -48,7 +48,7 @@
         {
           "android": {
             "minSdkVersion": 31,
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": false
           }
         }
       ],

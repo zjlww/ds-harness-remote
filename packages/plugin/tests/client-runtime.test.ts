@@ -780,6 +780,20 @@ describe('ClientModeRuntime Host account control', () => {
     await runtime.close()
   })
 
+  it('refuses to pin a Host that was not verified out of band', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-unverified-'))
+    directories.push(directory)
+    const identities = new IdentityStore({ directory })
+    const hostKeys = generateKeyPair(new Uint8Array(32).fill(23))
+    const server = clientServerWithHostKey(hostKeys.publicKey) as unknown as ClientServerApi
+    const runtime = new ClientModeRuntime(config(), identities, server, apiProxy(), gateway(), logger())
+    await runtime.start()
+    // The relay is the only source of this key, so it must not be pinned silently.
+    await expect(runtime.devices()).rejects.toMatchObject({ code: 'PEER_NOT_VERIFIED' })
+    expect(identities.trustedPeer('host-device-1')).toBeUndefined()
+    await runtime.close()
+  })
+
   it('pins Host identity from an account-authorized device detail and rejects key replacement', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-trust-'))
     directories.push(directory)
@@ -787,27 +801,14 @@ describe('ClientModeRuntime Host account control', () => {
     const first = generateKeyPair(new Uint8Array(32).fill(21))
     const replacement = generateKeyPair(new Uint8Array(32).fill(22))
     let identityKey = first.publicKey
-    const server = {
-      baseUrl: 'https://dsh.r2049.cn',
-      bindIdentity: vi.fn(),
-      listDevices: vi.fn(async () => [{
-        deviceId: 'host-device-1',
-        name: 'Workstation',
-        platform: 'linux',
-        membershipId: 'membership-1',
-      }]),
-      deviceFor: vi.fn(async () => ({
-        deviceId: 'host-device-1',
-        name: 'Workstation',
-        role: 'host' as const,
-        platform: 'linux',
-        identityKey,
-        membershipId: 'membership-1',
-      })),
-      presenceFor: vi.fn(async () => ({ online: true })),
-    } as unknown as ClientServerApi
+    const server = clientServerWithHostKey(() => identityKey) as unknown as ClientServerApi
     const runtime = new ClientModeRuntime(config(), identities, server, apiProxy(), gateway(), logger())
     await runtime.start()
+
+    // The key was verified out of band before the first connection.
+    await identities.verifyPeer({
+      deviceId: 'host-device-1', name: 'Workstation', platform: 'linux', publicKey: first.publicKey, membershipId: 'membership-1',
+    })
 
     await expect(runtime.devices()).resolves.toMatchObject([{ deviceId: 'host-device-1', online: true }])
     expect(identities.trustedPeer('host-device-1')).toMatchObject({
@@ -821,6 +822,29 @@ describe('ClientModeRuntime Host account control', () => {
     await runtime.close()
   })
 })
+
+function clientServerWithHostKey(identityKey: string | (() => string)) {
+  const read = (): string => typeof identityKey === 'function' ? identityKey() : identityKey
+  return {
+    baseUrl: 'https://dsh.r2049.cn',
+    bindIdentity: vi.fn(),
+    listDevices: vi.fn(async () => [{
+      deviceId: 'host-device-1',
+      name: 'Workstation',
+      platform: 'linux',
+      membershipId: 'membership-1',
+    }]),
+    deviceFor: vi.fn(async () => ({
+      deviceId: 'host-device-1',
+      name: 'Workstation',
+      role: 'host' as const,
+      platform: 'linux',
+      identityKey: read(),
+      membershipId: 'membership-1',
+    })),
+    presenceFor: vi.fn(async () => ({ online: true })),
+  }
+}
 
 function config(): ResolvedConfig {
   return {

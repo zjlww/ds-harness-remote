@@ -22,17 +22,53 @@ describe('IdentityStore', () => {
     }
   })
 
-  it('persists trusted peers without private material', async () => {
+  it('persists verified peers without private material', async () => {
     const hostDirectory = await temporaryDirectory()
     const clientDirectory = await temporaryDirectory()
     const hostStore = new IdentityStore({ directory: hostDirectory })
     await hostStore.loadOrCreate('Host')
     const client = await new IdentityStore({ directory: clientDirectory }).loadOrCreate('Client')
-    await hostStore.trustPeer({ deviceId: client.deviceId, name: client.name, platform: 'linux', publicKey: client.publicKey })
+    await hostStore.verifyPeer({ deviceId: client.deviceId, name: client.name, platform: 'linux', publicKey: client.publicKey })
     const stored = await readFile(join(hostDirectory, 'trusted-peers.json'), 'utf8')
     expect(stored).toContain(client.publicKey)
     expect(stored).not.toContain(client.privateKey)
     expect(hostStore.isTrusted(client.deviceId, client.publicKey)).toBe(true)
+  })
+
+  it('refuses to pin a key that only the relay vouched for', async () => {
+    const hostStore = new IdentityStore({ directory: await temporaryDirectory() })
+    await hostStore.loadOrCreate('Host')
+    const offered = { deviceId: 'unknown-device', name: 'Server says so', platform: 'linux', publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+    await expect(hostStore.trustPeer(offered)).rejects.toMatchObject({ code: 'PEER_NOT_VERIFIED' })
+    expect(hostStore.isTrusted(offered.deviceId, offered.publicKey)).toBe(false)
+    expect(hostStore.listTrustedPeers()).toHaveLength(0)
+  })
+
+  it('never replaces an existing pin with a different key', async () => {
+    const hostStore = new IdentityStore({ directory: await temporaryDirectory() })
+    await hostStore.loadOrCreate('Host')
+    const client = await new IdentityStore({ directory: await temporaryDirectory() }).loadOrCreate('Client')
+    await hostStore.verifyPeer({ deviceId: client.deviceId, name: client.name, platform: 'linux', publicKey: client.publicKey })
+    const impostor = { deviceId: client.deviceId, name: 'impostor', platform: 'linux', publicKey: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' }
+
+    // Both the automatic path and the operator path must refuse a key swap.
+    await expect(hostStore.trustPeer(impostor)).rejects.toMatchObject({ code: 'PEER_IDENTITY_MISMATCH' })
+    await expect(hostStore.verifyPeer(impostor)).rejects.toMatchObject({ code: 'PEER_IDENTITY_MISMATCH' })
+    expect(hostStore.isTrusted(client.deviceId, client.publicKey)).toBe(true)
+  })
+
+  it('refreshes mutable details for an already verified peer', async () => {
+    const hostStore = new IdentityStore({ directory: await temporaryDirectory() })
+    await hostStore.loadOrCreate('Host')
+    const client = await new IdentityStore({ directory: await temporaryDirectory() }).loadOrCreate('Client')
+    await hostStore.verifyPeer({ deviceId: client.deviceId, name: 'old name', platform: 'linux', publicKey: client.publicKey })
+    const refreshed = await hostStore.trustPeer({
+      deviceId: client.deviceId, name: 'new name', platform: 'darwin', publicKey: client.publicKey, membershipId: 'account:abc',
+    })
+    expect(refreshed.name).toBe('new name')
+    expect(refreshed.platform).toBe('darwin')
+    expect(refreshed.membershipId).toBe('account:abc')
+    expect(refreshed.publicKey).toBe(client.publicKey)
   })
 
   it('fails closed for incomplete or overly permissive identity files', async () => {

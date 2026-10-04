@@ -73,6 +73,8 @@ export async function runCli(
     if (command === 'register') return await register(rest, runtime)
     if (command === 'status') return await status(rest, runtime)
     if (command === 'logout') return await logout(rest, runtime)
+    if (command === 'trust') return await trust(rest, runtime)
+    if (command === 'untrust') return await untrust(rest, runtime)
     if (command === 'help' || command === '--help' || command === '-h' || command === undefined) {
       write(runtime.stdout, helpText())
       return 0
@@ -228,7 +230,83 @@ async function hostContext(runtime: CliRuntime): Promise<{
 }
 
 function selectedServer(): string {
-  return normalizeServerUrl(DEFAULT_REMOTE_SERVER_URL)
+  // Self-hosted relays must be reachable from this CLI, so honour an explicit
+  // override before falling back to the built-in default.
+  return normalizeServerUrl(process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+}
+
+/**
+ * Pins a peer key that the operator has already verified out of band.
+ *
+ * A peer identity key reaches this machine only through the relay Server, which also
+ * relays the traffic. Pinning it blindly would let the Server terminate the
+ * end-to-end channel, so a new peer must be verified here, by hand, first.
+ */
+async function trust(args: readonly string[], runtime: CliRuntime): Promise<number> {
+  const { positional, flags } = parseFlags(args)
+  const [deviceId, publicKey] = positional
+  if (positional.length !== 2 || deviceId === undefined || publicKey === undefined
+    || deviceId.trim() === '' || publicKey.trim() === '') {
+    throw new CliUsageError('Usage: ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]')
+  }
+  const role = peerRole(flags)
+  const identities = peerIdentityStore(runtime, role, flags)
+  await identities.loadOrCreate(hostname())
+  const peer = await identities.verifyPeer({
+    deviceId: deviceId.trim(),
+    publicKey: publicKey.trim(),
+    name: flags.get('name')?.trim() || deviceId.trim(),
+    platform: flags.get('platform')?.trim() || 'unknown',
+  })
+  write(runtime.stdout, `Pinned ${role} peer ${peer.deviceId}\n  fingerprint ${peer.fingerprint}\n`)
+  return 0
+}
+
+async function untrust(args: readonly string[], runtime: CliRuntime): Promise<number> {
+  const { positional, flags } = parseFlags(args)
+  const [deviceId] = positional
+  if (positional.length !== 1 || deviceId === undefined || deviceId.trim() === '') {
+    throw new CliUsageError('Usage: ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]')
+  }
+  const role = peerRole(flags)
+  const identities = peerIdentityStore(runtime, role, flags)
+  await identities.loadOrCreate(hostname())
+  const removed = await identities.revokePeer(deviceId.trim())
+  write(runtime.stdout, removed
+    ? `Removed the pin for ${deviceId.trim()}\n`
+    : `No pin existed for ${deviceId.trim()}\n`)
+  return removed ? 0 : 1
+}
+
+function parseFlags(args: readonly string[]): { positional: string[]; flags: Map<string, string> } {
+  const positional: string[] = []
+  const flags = new Map<string, string>()
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index]!
+    if (!value.startsWith('--')) { positional.push(value); continue }
+    const name = value.slice(2)
+    const next = args[index + 1]
+    if (next === undefined || next.startsWith('--')) throw new CliUsageError(`Option --${name} needs a value.`)
+    flags.set(name, next)
+    index += 1
+  }
+  return { positional, flags }
+}
+
+function peerRole(flags: Map<string, string>): 'host' | 'client' {
+  const role = flags.get('role') ?? 'host'
+  if (role !== 'host' && role !== 'client') throw new CliUsageError('--role must be host or client.')
+  return role
+}
+
+/** The peer role we pin is the *other* side's storage directory, keyed by our own role. */
+function peerIdentityStore(runtime: CliRuntime, peerRoleName: 'host' | 'client', flags: Map<string, string>): IdentityStore {
+  const serverUrl = normalizeServerUrl(flags.get('server') ?? process.env.DSH_REMOTE_SERVER_URL ?? DEFAULT_REMOTE_SERVER_URL)
+  const root = new IdentityStore({ env: runtime.env }).directory
+  return runtime.createIdentityStore({
+    directory: serverStorageDirectory(root, serverUrl, peerRoleName),
+    env: runtime.env,
+  })
 }
 
 function resolveDependencies(input: RemoteCliDependencies): CliRuntime {
@@ -331,10 +409,14 @@ function helpText(): string {
     '  ds-harness-remote register <server-token>',
     '  ds-harness-remote status',
     '  ds-harness-remote logout',
+    '  ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]',
+    '  ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]',
     '',
     'Inside dsh-TUI, use /remote login, /remote status, or /remote logout.',
     'login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.',
-    `The Server is ${DEFAULT_REMOTE_SERVER_URL}.`,
+    `The Server defaults to ${DEFAULT_REMOTE_SERVER_URL}; set DSH_REMOTE_SERVER_URL or pass --server to use a self-hosted relay.`,
+    'A peer key is only accepted after it has been checked out of band: pin it with `trust` before',
+    'connecting, otherwise the first connection is refused with PEER_NOT_VERIFIED.',
     'Host configuration is not exposed by this CLI yet. Restart dsh-tui after login or logout.',
     '',
   ].join('\n')
