@@ -207,6 +207,19 @@ export class IdentityStore {
     return removed
   }
 
+  /**
+   * Re-reads the peer pin file.
+   *
+   * The pin set is otherwise read once at startup, so a pin created or revoked while
+   * the process is running (by the `trust`/`untrust` CLI, or by an installer) would
+   * not take effect until the next restart — and a peer that should have been
+   * accepted would be refused as unverified.
+   */
+  async reloadPeers(): Promise<void> {
+    this.current()
+    await this.loadPeers()
+  }
+
   private async loadPeers(): Promise<void> {
     const path = join(this.directory, 'trusted-peers.json')
     if (!(await exists(path))) {

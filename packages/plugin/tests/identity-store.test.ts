@@ -71,6 +71,32 @@ describe('IdentityStore', () => {
     expect(refreshed.publicKey).toBe(client.publicKey)
   })
 
+  it('picks up a pin written while the process is running', async () => {
+    const directory = await temporaryDirectory()
+    const writer = new IdentityStore({ directory })
+    await writer.loadOrCreate('Host')
+    const client = await new IdentityStore({ directory: await temporaryDirectory() }).loadOrCreate('Client')
+
+    // The running instance has not seen any pin yet.
+    const reader = new IdentityStore({ directory })
+    await reader.loadOrCreate('Host')
+    expect(reader.isTrusted(client.deviceId, client.publicKey)).toBe(false)
+    await expect(reader.trustPeer({
+      deviceId: client.deviceId, name: client.name, platform: 'linux', publicKey: client.publicKey,
+    })).rejects.toMatchObject({ code: 'PEER_NOT_VERIFIED' })
+
+    // An installer or CLI pins it out of band...
+    await writer.verifyPeer({ deviceId: client.deviceId, name: client.name, platform: 'linux', publicKey: client.publicKey })
+    // ...and a reload makes it effective without a restart.
+    await reader.reloadPeers()
+    expect(reader.isTrusted(client.deviceId, client.publicKey)).toBe(true)
+
+    // Revocation is picked up the same way.
+    await writer.revokePeer(client.deviceId)
+    await reader.reloadPeers()
+    expect(reader.isTrusted(client.deviceId, client.publicKey)).toBe(false)
+  })
+
   it('fails closed for incomplete or overly permissive identity files', async () => {
     const incomplete = await temporaryDirectory()
     await writeFile(join(incomplete, 'device.json'), '{}')

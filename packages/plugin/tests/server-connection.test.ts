@@ -87,7 +87,7 @@ describe('HostServerConnection', () => {
     const server = new HostServerConnection(
       config(),
       identity,
-      { trustedPeer: vi.fn(() => undefined), trustPeer } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(() => undefined), trustPeer, reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore,
       api,
       connections,
       logger(),
@@ -214,7 +214,7 @@ describe('HostServerConnection', () => {
     const server = new HostServerConnection(
       { ...config(), reconnect: { ...config().reconnect, enabled: true } },
       { schemaVersion: 1, deviceId: 'host-2', name: 'Host', fingerprint: 'HOST', ...keys },
-      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore,
       api,
       { close: vi.fn(async () => undefined) } as unknown as ConnectionController,
       logger(),
@@ -240,7 +240,7 @@ describe('HostServerConnection', () => {
     const server = new HostServerConnection(
       config(),
       { schemaVersion: 1, deviceId: 'host-3', name: 'Host', fingerprint: 'HOST', ...keys },
-      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore,
       api,
       { close: vi.fn(async () => undefined) } as unknown as ConnectionController,
       logger(),
@@ -285,7 +285,7 @@ describe('HostServerConnection', () => {
       const server = new HostServerConnection(
         { ...config(), reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 1, jitter: 0 } },
         { schemaVersion: 1, deviceId: 'host-recovery', name: 'Host', fingerprint: 'HOST', ...keys },
-        { trustedPeer: vi.fn() } as unknown as IdentityStore, api,
+        { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore, api,
         { close: vi.fn(async () => undefined) } as unknown as ConnectionController, logs,
         () => { const socket = new FakeWebSocket(); sockets.push(socket); return socket },
       )
@@ -360,7 +360,7 @@ describe('HostServerConnection', () => {
       const server = new HostServerConnection(
         { ...config(), reconnect: { enabled: true, initialDelayMs: 1, maxDelayMs: 1, jitter: 0 } },
         { schemaVersion: 1, deviceId: 'host-retry-refresh', name: 'Host', fingerprint: 'HOST', ...generateKeyPair() },
-        { trustedPeer: vi.fn() } as unknown as IdentityStore, api,
+        { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore, api,
         { close: vi.fn(async () => undefined) } as unknown as ConnectionController, logger(),
         () => { const socket = new FakeWebSocket(); sockets.push(socket); return socket },
       )
@@ -403,7 +403,7 @@ describe('HostServerConnection', () => {
     const server = new HostServerConnection(
       config(),
       { schemaVersion: 1, deviceId: 'host-rtc', name: 'Host', fingerprint: 'HOST', ...keys },
-      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore,
       { baseUrl: 'https://relay.example.com' } as HostServerApi,
       { closeConnection } as unknown as ConnectionController,
       logger(),
@@ -438,7 +438,7 @@ describe('HostServerConnection', () => {
     const server = new HostServerConnection(
       config(),
       { schemaVersion: 1, deviceId: 'host-negotiating', name: 'Host', fingerprint: 'HOST', ...keys },
-      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(), reloadPeers: vi.fn(async () => undefined) } as unknown as IdentityStore,
       { baseUrl: 'https://relay.example.com' } as HostServerApi,
       { closeConnection } as unknown as ConnectionController,
       logger(),

@@ -294,7 +294,7 @@ async function trust(args: readonly string[], runtime: CliRuntime): Promise<numb
     || deviceId.trim() === '' || publicKey.trim() === '') {
     throw new CliUsageError('Usage: ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]')
   }
-  const role = peerRole(flags)
+  const role = ownRole(flags)
   const identities = peerIdentityStore(runtime, role, flags)
   await identities.loadOrCreate(hostname())
   const peer = await identities.verifyPeer({
@@ -303,7 +303,7 @@ async function trust(args: readonly string[], runtime: CliRuntime): Promise<numb
     name: flags.get('name')?.trim() || deviceId.trim(),
     platform: flags.get('platform')?.trim() || 'unknown',
   })
-  write(runtime.stdout, `Pinned ${role} peer ${peer.deviceId}\n  fingerprint ${peer.fingerprint}\n`)
+  write(runtime.stdout, `Pinned ${role === 'host' ? 'client' : 'host'} peer ${peer.deviceId}\n  fingerprint ${peer.fingerprint}\n`)
   return 0
 }
 
@@ -313,7 +313,7 @@ async function untrust(args: readonly string[], runtime: CliRuntime): Promise<nu
   if (positional.length !== 1 || deviceId === undefined || deviceId.trim() === '') {
     throw new CliUsageError('Usage: ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]')
   }
-  const role = peerRole(flags)
+  const role = ownRole(flags)
   const identities = peerIdentityStore(runtime, role, flags)
   await identities.loadOrCreate(hostname())
   const removed = await identities.revokePeer(deviceId.trim())
@@ -338,18 +338,19 @@ function parseFlags(args: readonly string[]): { positional: string[]; flags: Map
   return { positional, flags }
 }
 
-function peerRole(flags: Map<string, string>): 'host' | 'client' {
+/** `--role` is this device's own role; its peer store holds the opposite side. */
+function ownRole(flags: Map<string, string>): 'host' | 'client' {
   const role = flags.get('role') ?? 'host'
   if (role !== 'host' && role !== 'client') throw new CliUsageError('--role must be host or client.')
   return role
 }
 
-/** The peer role we pin is the *other* side's storage directory, keyed by our own role. */
-function peerIdentityStore(runtime: CliRuntime, peerRoleName: 'host' | 'client', flags: Map<string, string>): IdentityStore {
+/** The peer store lives under our own role's directory, scoped to the Server origin. */
+function peerIdentityStore(runtime: CliRuntime, ownRoleName: 'host' | 'client', flags: Map<string, string>): IdentityStore {
   const serverUrl = selectedServerFor(runtime, flags)
   const root = new IdentityStore({ env: runtime.env }).directory
   return runtime.createIdentityStore({
-    directory: serverStorageDirectory(root, serverUrl, peerRoleName),
+    directory: serverStorageDirectory(root, serverUrl, ownRoleName),
     env: runtime.env,
   })
 }
@@ -455,8 +456,8 @@ function helpText(): string {
     '  ds-harness-remote register <server-token>',
     '  ds-harness-remote status',
     '  ds-harness-remote logout',
-    '  ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]',
-    '  ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]',
+    '  ds-harness-remote trust <deviceId> <publicKey> [--role host|client] [--name <name>] [--platform <platform>] [--server <url>]   (--role is THIS device)',
+    '  ds-harness-remote untrust <deviceId> [--role host|client] [--server <url>]   (--role is THIS device)',
     '',
     'Inside dsh-TUI, use /remote login, /remote status, or /remote logout.',
     'login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.',

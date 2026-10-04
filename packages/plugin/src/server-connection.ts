@@ -385,6 +385,9 @@ export class HostServerConnection {
   }
 
   private async handleConnectIncoming(payload: ConnectIncomingPayload): Promise<void> {
+    // Pick up pins created or revoked since startup, so trust changes take effect
+    // without restarting the Host.
+    await this.identities.reloadPeers()
     let descriptor: AuthorizedPeerDevice
     try {
       descriptor = await this.api.deviceFor(payload.clientDeviceId)
